@@ -26,6 +26,10 @@ doesn't cover. Format: date, decision, one-line why.
   spam is outlived, not judged.
 - **install.sh editing strfry.conf / compose / proxy configs** — auto-editing
   unknown Umbrel/Portainer stacks bricks relays. Print, never edit.
+- **steward holding the Lord's secret key (for DM triage or anything else)**
+  — the container is internet-facing and root-equivalent via docker.sock;
+  putting the identity key on it turns a bad day into a catastrophe. No
+  feature justifies it.
 
 ## Deferred (real ideas, wrong day)
 
@@ -51,6 +55,14 @@ doesn't cover. Format: date, decision, one-line why.
   to exec on the strfry container, replacing the raw socket mount).
   Documented in the README as the hardening option; make it the default if
   the project grows an audience.
+- **Lord-login DM triage** (towncrier unwraps Castle Mail client-side via
+  NIP-07 nip44 when the Lord signs in; the Lord judges, spam is purged and
+  the Lord's public mute list updated so junk vanishes from clients, not
+  just this relay). Real idea, wrong day: extension support for unwrapping
+  gift wraps is inconsistent, it strains the 60KB budget, and the purge
+  would be a THIRD `strfry delete` call site — if ever built it must route
+  through the existing wrapper. The per-IP bucket plus the visible Vault
+  count cover v1; demand should precede code.
 
 ## Decided (calls CLAUDE.md didn't make)
 
@@ -81,7 +93,7 @@ doesn't cover. Format: date, decision, one-line why.
   purge-newly-banned). The only irreversible operation gets one choke point
   where dry-run, batching, and audit logging live. Adopted from the other
   fork's chain-of-command design, minus the office theming.
-- **Courtyard-neglect nudge uses event count and oldest age, never DB file
+- **Outer-lands-neglect nudge uses event count and oldest age, never DB file
   size** — LMDB never shrinks (deleted pages are reused, the file stays at
   high-water mark), so `du` on the DB is monotonic and would nudge forever
   after a thorough raid. File size is an informational footnote at most.
@@ -89,6 +101,26 @@ doesn't cover. Format: date, decision, one-line why.
   source of truth; one version field turns a future format change into a
   migration instead of a replay break. Replay fails loudly on unknown
   versions.
+- **"Wild West" is renamed "the Outer Lands"** — pure theming, folded in
+  before any code exists so there is no migration. The stray "courtyard"
+  wording is unified under the same name (env var is now OUTER_TTL_DAYS,
+  reject message and neglect nudge reworded): one concept, one name.
+- **Castle Mail rides the per-IP token bucket** — permanence exempts mail
+  from raids, never from the write path. Gift wraps are stranger-authored
+  by construction (random one-time keys), so a bucket exemption was an
+  unthrottled permanent write lane open to anyone. Human DM rates never
+  touch the bucket (the NIP-46 argument), and sender anonymity already
+  preserves the appeals path: banned pubkeys can still write the Lord,
+  just not at flood speed. Caught in spec review.
+- **/api/elevate SETS the requested visibility; only flip-visibility
+  toggles — and react-warding skips OWNER_PUBKEY and the already-elevated**
+  — blind toggling meant the Lord liking a favorite's note silently demoted
+  their public star into a ward. Caught in spec review.
+- **Kind-0 name cache covers tree members ∪ public favorites ∪
+  evicted-in-grace; /api/tree grows a `favored` array** — the public page
+  renders names in the Favored and Evicted sections, and previously had no
+  data source for the favorites list at all (stats.json only carries a
+  count). Still never wards.
 
 ## Accepted trade-offs (known, intentional)
 

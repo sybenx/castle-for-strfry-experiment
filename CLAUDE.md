@@ -6,8 +6,8 @@ A sidecar + write-policy plugin + interactive web UI for an existing strfry
 relay running in Docker (Portainer, on Umbrel). It turns a fully open relay
 into a "castle": permanent storage for the owner (the Lord) and everyone he
 elevates — an invite tree of trusted members (like fiatjaf's Pyramid relay),
-his follows, and his chosen favorites and wards — plus open lands (the Wild
-West) where anyone may write, raided at the Lord's whim. Ephemeral DMs work
+his follows, and his chosen favorites and wards — plus open lands (the Outer
+Lands) where anyone may write, raided at the Lord's whim. Ephemeral DMs work
 for everyone; they are permanent only for the castle.
 
 **Design creed: light as a whip.** strfry and Pyramid are loved because they
@@ -53,22 +53,27 @@ Every event falls into exactly one tier. First match wins, top to bottom:
 | **The Lord** | `OWNER_PUBKEY` | accept | permanent |
 | **Castle Mail** | kind 1059 (gift wrap) or 9735 (zap receipt) with a `p` tag of the Lord or any citizen | accept | permanent |
 | **Citizens** | tree members ∪ the Lord's follows ∪ the elevated | accept | permanent while citizen |
-| **Wild West** | everyone else | accept (rate-limited) | purged at the next raid if older than `COURTYARD_TTL_DAYS` |
+| **Outer Lands** | everyone else | accept (rate-limited) | purged at the next raid if older than `OUTER_TTL_DAYS` |
 
 Load-bearing subtleties — do not lose these:
 
 - **Castle Mail is judged by recipient, not author.** NIP-59 gift wraps are
   signed by random one-time keys; author-based rules are blind to them. Match
   kind ∈ {1059, 9735} AND any `p` tag ∈ (Lord ∪ citizens). This rule precedes
-  author rules and is exempt from pruning and from the rate limiter. Without
-  it the Lord's own DMs get rejected or purged. Stranger-to-stranger gift
-  wraps match no rule, land in Wild West, and age out — that is the
+  author rules and is exempt from pruning — but NOT from the per-IP rate
+  limiter. Gift wraps are stranger-authored by construction (random one-time
+  keys), so an unthrottled permanent write path would be open to literally
+  anyone; human DM rates never touch the bucket (the NIP-46 argument), and
+  the same anonymity means banned pubkeys can still write the Lord — appeals
+  remain possible by design. Without the recipient rule itself the Lord's
+  own DMs get rejected or purged. Stranger-to-stranger gift
+  wraps match no rule, land in Outer Lands, and age out — that is the
   "ephemeral DMs for everyone" behavior, and it is intentional.
 - **Ban check precedes everything.** steward must refuse to ever ban
   `OWNER_PUBKEY`.
 - **Losing citizenship is not a purge.** An evicted member's events get a
   grace period: the raid keeps events whose author was evicted less than
-  `COURTYARD_TTL_DAYS` ago (removal timestamps come from the ledger). After
+  `OUTER_TTL_DAYS` ago (removal timestamps come from the ledger). After
   the grace window their events age out like any stranger's. Explicit bans
   DO purge immediately — that is the difference between exile and outlawry.
 - **Domain checking is steward-side only and asynchronous.** gatekeeper never
@@ -104,7 +109,9 @@ Rules:
   not remove-and-re-add.
 - **React-warding:** each cycle, steward fetches the Lord's kind-7 reactions
   since a watermark, resolves each reacted note's author from the local
-  relay, and wards that author (ledger source = the reaction event id).
+  relay, and wards that author (ledger source = the reaction event id). Skip
+  OWNER_PUBKEY and any already-elevated pubkey — liking a favorite's note
+  must never silently demote their public star into a ward.
   Reactions are already public events, so this leaks nothing; only the
   retention is silent. React-created wards are listed on the ward page with
   their source and can be lowered like any other.
@@ -155,15 +162,16 @@ must accept their events) but is a shared-volume file, never an API response.
 - Reads `banned.json` and `citizens.json` from the shared volume; stats mtime
   ≤ 1/sec (poll interval injectable, so tests don't depend on wall-clock);
   hot-reloads into hashsets. Missing files = empty sets (fail open).
-- Per-IP token bucket for non-citizen, non-Castle-Mail events: default
-  30 events/min, burst 60. Evict buckets idle > 10 minutes (unbounded IP
+- Per-IP token bucket for all non-citizen-authored events, Castle Mail
+  included (permanence exempts mail from raids, never from the write path):
+  default 30 events/min, burst 60. Evict buckets idle > 10 minutes (unbounded IP
   churn must not grow memory forever).
 - **`sourceInfo` is only meaningful if strfry is configured with
   `relay.realIpHeader` behind the reverse proxy** — otherwise every writer
   shares the proxy's IP and the limiter is either a no-op or a self-DoS.
   Document in deploy/, verify in the smoke test.
 - Themed reject messages: banned → `blocked: you have been exiled from these
-  lands`; rate limit → `rate-limited: the courtyard is busy`.
+  lands`; rate limit → `rate-limited: the outer lands are crowded`.
 - Test fixtures (`citizens.json`, `banned.json`, event lines) are committed
   under `gatekeeper/testdata/`.
 
@@ -178,7 +186,7 @@ tecnativa/docker-socket-proxy limited to exec) is the documented hardening
 option.** Interface the strfry-CLI wrapper so tests can fake it.
 
 Env config: `OWNER_PUBKEY` (hex), `STRFRY_CONTAINER`, `PUBLIC_RELAYS`
-(comma-sep), `COURTYARD_TTL_DAYS=30`, `CYCLE_MINUTES=10`,
+(comma-sep), `OUTER_TTL_DAYS=30`, `CYCLE_MINUTES=10`,
 `RAID_CRON=""` (empty = manual raids only, the default), `RAID_DRY_RUN=true`
 (default ON for first deploy), `MAX_INVITES=5`, `MAX_DEPTH=4`,
 `NIP05_DOMAIN` (optional; enables serving `/.well-known/nostr.json`),
@@ -223,7 +231,8 @@ auditable and intake idempotent.**
    everything that preceded it; a NEW report after a pardon re-bans, which
    is what a fresh judgment should do.
 3. **React-warding.** Fetch the Lord's kind 7 since the react watermark; ward
-   the authors of reacted notes. Resolve each e-tagged note's author from
+   the authors of reacted notes, skipping OWNER_PUBKEY and the
+   already-elevated. Resolve each e-tagged note's author from
    the local relay first; if absent (the Lord reacted to a note that never
    reached the castle — the common case), fall back to fetching the event
    from PUBLIC_RELAYS. The fetched event is a transient lookup, discarded
@@ -259,13 +268,13 @@ No other standing network behavior exists.
 ### The Raid (manual `POST /api/raid`, or `RAID_CRON` if set)
 
 ```
-cutoff = now - COURTYARD_TTL_DAYS
+cutoff = now - OUTER_TTL_DAYS
 re-enumerate banned domains; sweep kind-0 nip05 claims   (see above)
 strfry scan '{"until": cutoff}'   # stream, don't slurp
   delete events UNLESS:
     author ∈ citizens                                  (includes elevated)
     OR (kind ∈ {1059,9735} AND any p-tag ∈ citizens)   (Castle Mail)
-    OR (author evicted at T where now - T < COURTYARD_TTL_DAYS)  (grace)
+    OR (author evicted at T where now - T < OUTER_TTL_DAYS)  (grace)
   → strfry delete by id, batches of 1000
 ```
 
@@ -281,9 +290,9 @@ wrapper, once. No API handler, no scribe path, no future feature grows its
 own delete.
 
 **The crier shouts about neglect:** manual raids must not become silent
-unbounded growth (the resource weight of an unraided courtyard on an Umbrel
+unbounded growth (the resource weight of unraided outer lands on an Umbrel
 is the problem this project exists to solve). `stats.json` already carries
-the Wild West event count, oldest-event age, and last-raid timestamp;
+the Outer Lands event count, oldest-event age, and last-raid timestamp;
 towncrier computes "days since last raid" and displays a visible nudge when
 the count or age crosses a threshold. Note: LMDB never shrinks — the DB
 file stays at high-water-mark size after deletion, so file size is at most
@@ -323,7 +332,10 @@ tag matches, created_at within ±60s. Replay guard: remember event ids for
 
 - `GET  /api/stats` — public. `stats.json`.
 - `GET  /api/tree` — public. Tree with kind-0 names/pictures resolved by
-  steward (cached, refreshed lazily, tree members only) and favorite stars.
+  steward and favorite stars, plus a `favored` array of non-tree favorites
+  (the public page's data source for the Favored section) and names for the
+  evicted list. The name cache covers tree members ∪ public favorites ∪
+  evicted members inside their grace window — never wards.
 - `GET  /api/wards` — **Lord only.** The ward list with sources.
 - `POST /api/invite {pubkey, label?}` — tree members + Lord. Enforce
   MAX_INVITES / MAX_DEPTH / not-banned (banned targets require pardon first).
@@ -332,7 +344,8 @@ tag matches, created_at within ±60s. Replay guard: remember event ids for
   Cuts the subtree; records eviction timestamps for the grace window.
 - `POST /api/ennoble {pubkey}` — Lord only.
 - `POST /api/elevate {pubkey, public}` — Lord only. Favorite (public) or
-  ward (private). Re-elevating flips visibility.
+  ward (private). Re-elevating SETS the requested visibility (idempotent; a
+  change is ledgered as flip-visibility) — it never toggles blindly.
 - `POST /api/lower {pubkey}` — Lord only. Removes elevation.
 - `POST /api/ban {pubkey|domain}` / `POST /api/pardon {pubkey|domain}` —
   Lord only. OWNER_PUBKEY is unbannable.
@@ -366,16 +379,17 @@ Public view:
   collapse/expand, zero JS), avatars + names, "invited by" lineage, and a
   star glyph on favorites. When the Lord is signed in the stars become
   clickable toggles inline. This is the Pyramid centerpiece.
-- **Favored of the Lord** — favorites who are not tree members.
+- **Favored of the Lord** — favorites who are not tree members. Fed by
+  /api/tree's `favored` array.
 - **The Citizenry** — counts (tree + follows + favorites ONLY), events stored.
 - **The Vault** — castle mail count.
 - **The Evicted** — recent removals still in their grace window, names struck
   through with their expiry date (or "until the next raid" when raids are
   manual).
-- **The Wild West** — event count, oldest event age, next raid ("at the
+- **The Outer Lands** — event count, oldest event age, next raid ("at the
   Lord's pleasure" when RAID_CRON is empty, countdown otherwise), last raid's
-  purge count, days since last raid — and a visible nudge ("the courtyard
-  overflows, my Lord") when the event count or oldest age crosses a
+  purge count, days since last raid — and a visible nudge ("the outer lands
+  overflow, my Lord") when the event count or oldest age crosses a
   threshold. The Lord may neglect his raids; the town crier shouts about it.
 - **The Exiled** — banned pubkey count, banned domains listed by name.
 - Footer: relay URL (click to copy), NIP-11 fields
@@ -410,7 +424,7 @@ Signed-in view (one "Enter the castle" button → NIP-07):
   "citizens": {"tree": 47, "follows": 812, "favored": 6, "events": 480211},
   "castle_mail": {"events": 4021},
   "evicted": [{"pubkey": "<hex>", "expires": 1730073600}],
-  "wild_west": {"events": 231998, "oldest": 1727400000},
+  "outer_lands": {"events": 231998, "oldest": 1727400000},
   "outlaws": {"pubkeys": 41, "domains": ["nostrmag.example"], "events_purged_total": 88213},
   "raids": {"next": null, "last_at": 1729987200, "last_purged": 5410},
   "invites": {"max_per_member": 5, "max_depth": 4}
@@ -457,7 +471,8 @@ steward uses github.com/nbd-wtf/go-nostr. gatekeeper stays stdlib-only.
 
 - gatekeeper: banned rejected; citizen accepted; ward accepted (from
   citizens.json — the file carries no visibility info); gift wrap p-tagging
-  a citizen accepted from unknown author and not rate-limited; stranger
+  a citizen accepted from an unknown author but riding the per-IP bucket
+  like any stranger event (permanence ≠ bucket exemption); stranger
   rate-limited after burst; malformed line survives; fuzz target passes;
   hot-reload within one poll interval; bucket eviction works.
 - tree: invite respects MAX_INVITES/MAX_DEPTH; member can't remove
@@ -469,6 +484,7 @@ steward uses github.com/nbd-wtf/go-nostr. gatekeeper stays stdlib-only.
   retention, loses invite rights; visibility flip is one ledger line; ban
   removes elevation; react-warding wards the reacted author exactly once,
   including via the PUBLIC_RELAYS fallback when the note is absent locally;
+  react-warding skips the Lord and never demotes an existing favorite;
   wards absent from /api/tree, /api/stats, and all public counts.
 - API: bad NIP-98 sig rejected; stale created_at rejected; replayed event id
   rejected; `u`/`method` mismatch rejected; /api/wards refuses non-Lord;
@@ -498,6 +514,12 @@ steward uses github.com/nbd-wtf/go-nostr. gatekeeper stays stdlib-only.
   silently kill the Lord's own DMs. The recipient-based Castle Mail rule is
   load-bearing — and its absence for strangers is what makes their DMs
   ephemeral, which is a feature.
+- Gift-wrap anonymity cuts both ways: the relay cannot filter DMs by sender
+  (no blocklist applies before decryption), and banned pubkeys can still
+  write the Lord — which is what keeps appeals possible. Sender-aware DM
+  triage therefore requires client-side decryption at Lord sign-in
+  (deferred, see DECISIONS.md) and NEVER the Lord's secret key on the
+  server (rejected).
 - NIP-05 is self-asserted; domain bans are a convenience against lazy spam
   farms, not a security boundary. Pubkey bans are the backbone.
 - The ledger exists because events age off relays; there is no protocol

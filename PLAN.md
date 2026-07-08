@@ -13,7 +13,9 @@ cross-compile linux/amd64 + linux/arm64; bytecheck is strict from day one —
 missing towncrier/index.html is a FAILURE, >60KB is a failure; it simply
 isn't wired into CI until Phase 6a, so the guard has one behavior and can
 never rot into a no-op), .env.example (RAID_DRY_RUN=true,
-RAID_CRON empty), empty test files, seeded DECISIONS.md, CI workflow that
+RAID_CRON empty), empty test files, stub main.go for gatekeeper and steward
+(so `make build` and the CI static-binary assertion have something to
+compile from day one), seeded DECISIONS.md, CI workflow that
 runs `make test` on push and asserts both gatekeeper binaries are static
 (`ldd` says "not a dynamic executable").
 **Accept:** `make build` produces static binaries for both arches; CI green
@@ -21,7 +23,9 @@ on a trivial test including the static check.
 
 ## [ ] Phase 1 — gatekeeper (the plugin)
 Pure stdlib. stdin/stdout JSONL loop, hashset checks against banned.json /
-citizens.json, Castle Mail recipient rule, per-IP token bucket with idle
+citizens.json, Castle Mail recipient rule (pruning-exempt, but mail rides
+the per-IP bucket like anything else — every gift wrap looks
+stranger-authored; pin with a test), per-IP token bucket with idle
 eviction, mtime hot reload with injectable poll interval, fail-open on
 missing files, malformed-line resilience, a native fuzz target on the stdin
 loop, themed reject messages. Ephemeral kinds (20000–29999) from
@@ -80,13 +84,14 @@ real writers).
 ## [ ] Phase 3b — stats, name cache, update check
 stats.json per the schema (public counts exclude wards; raids.next null when
 manual), batched `strfry scan --count`, daily GitHub release check feeding
-`version` in stats.json. Kind-0 name/avatar cache for tree members (fetch
-from local relay first, PUBLIC_RELAYS as fallback; atomic cache file; lazy
-refresh with a staleness threshold; tree members only — never wards). Phase
+`version` in stats.json. Kind-0 name/avatar cache for tree members, public favorites, and evicted
+members inside their grace window (fetch from local relay first,
+PUBLIC_RELAYS as fallback; atomic cache file; lazy refresh with a staleness
+threshold; never wards). Phase
 5a's /api/tree only READS this cache; the network code lives here.
 **Accept:** stats.json validates against the schema from a live compose
 stack; ward count appears nowhere; name cache populates for tree members
-and contains no ward pubkeys.
+and public favorites and contains no ward pubkeys.
 
 ## [ ] Phase 4 — the raid
 Domain re-enumeration + local kind-0 nip05 sweep at raid time, **both
@@ -108,7 +113,8 @@ well-known survives re-enumeration."**
 NIP-98 verification (sig, u, method, ±60s, 5-min replay guard), all
 endpoints from CLAUDE.md including /api/wards (Lord only), /api/elevate,
 /api/lower, /api/archive, /api/raid; immediate state rewrite on mutation;
-per-IP rate limit; same-origin CORS; static file serving for towncrier;
+per-IP rate limit; same-origin CORS; static file serving for towncrier (a placeholder
+index.html until Phase 6a);
 NIP-05 serving when NIP05_DOMAIN is set.
 **Accept:** API checklist tests pass; curl + nak-signed headers can invite,
 remove, elevate, ban, pardon, and trigger a dry-run raid end-to-end against
@@ -126,7 +132,7 @@ scribe mid-job leaves the cycle untouched.
 One index.html, < 60KB (the always-strict bytecheck gets wired into the CI
 workflow in this phase), no deps, no build. Public sections per CLAUDE.md: Lord, Court (tree as
 nested <details> with stars), Favored, Citizenry, Vault, Evicted
-(struck-through + expiry, "until the next raid" when manual), Wild West
+(struck-through + expiry, "until the next raid" when manual), Outer Lands
 ("at the Lord's pleasure" when manual, days since last raid, and the
 neglect nudge — visible warning when event count or oldest age crosses a
 threshold; the crier shouts, the Lord decides), Exiled, NIP-11 footer,
