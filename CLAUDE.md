@@ -74,7 +74,10 @@ Load-bearing subtleties — do not lose these:
 - **Domain checking is steward-side only and asynchronous.** gatekeeper never
   sees domains; steward resolves banned domains to pubkeys (see Ban intake)
   and only pubkeys ever reach `banned.json`. gatekeeper stays O(1).
-- Ephemeral kinds (20000–29999) pass through per NIP-16; ignore in stats.
+- Ephemeral kinds (20000–29999) pass through per NIP-16 (strfry doesn't
+  store them) but are NOT exempt from the write path: non-citizen ephemeral
+  traffic goes through the same per-IP token bucket as any stranger event.
+  Citizens are exempt as always. Ignore ephemeral kinds in stats.
 
 ## The elevation model
 
@@ -137,8 +140,12 @@ must accept their events) but is a shared-volume file, never an API response.
 
 ## Component 1: gatekeeper (write-policy plugin)
 
-- Go, CGO_ENABLED=0, stdlib + encoding/json only. Runs inside the strfry
-  container via strfry.conf `writePolicy.plugin = "/plugin/gatekeeper"`.
+- Go, CGO_ENABLED=0, stdlib + encoding/json only. "Stdlib-only" means no
+  external dependencies — the shared `internal/stateformat` package (itself
+  stdlib-only) that defines the banned.json/citizens.json types is the one
+  permitted import, precisely so steward's writers and gatekeeper's reader
+  can never drift. Runs inside the strfry container via strfry.conf
+  `writePolicy.plugin = "/plugin/gatekeeper"`.
 - strfry plugin protocol: JSONL on stdin
   (`{"type":"new","event":{...},"sourceInfo":"<ip>"}`), respond
   `{"id":"<event id>","action":"accept"|"reject","msg":"..."}` on stdout,

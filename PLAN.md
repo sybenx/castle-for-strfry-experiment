@@ -9,9 +9,10 @@ Resist adding anything not in the spec — light as a whip.
 
 ## [ ] Phase 0 — Skeleton (30 min)
 Repo layout per CLAUDE.md, Go module, Makefile (build/test/smoke/bytecheck,
-cross-compile linux/amd64 + linux/arm64; bytecheck prints "towncrier not yet
-built" and exits 0 while towncrier/index.html is absent — hard enforcement
-lands in Phase 6a), .env.example (RAID_DRY_RUN=true,
+cross-compile linux/amd64 + linux/arm64; bytecheck is strict from day one —
+missing towncrier/index.html is a FAILURE, >60KB is a failure; it simply
+isn't wired into CI until Phase 6a, so the guard has one behavior and can
+never rot into a no-op), .env.example (RAID_DRY_RUN=true,
 RAID_CRON empty), empty test files, seeded DECISIONS.md, CI workflow that
 runs `make test` on push and asserts both gatekeeper binaries are static
 (`ldd` says "not a dynamic executable").
@@ -25,13 +26,18 @@ eviction, mtime hot reload with injectable poll interval, fail-open on
 missing files, malformed-line resilience, a native fuzz target on the stdin
 loop, themed reject messages. Ephemeral kinds (20000–29999) from
 non-citizens go through the same token bucket — no exemption (see
-DECISIONS.md); pin this with a test. Committed fixtures in
-gatekeeper/testdata/. Unit tests for every gatekeeper row of the CLAUDE.md
-checklist.
+DECISIONS.md); pin this with a test. The banned.json/citizens.json format
+types are born in a shared, stdlib-only internal package (e.g.
+internal/stateformat) so Phase 3a's writers and gatekeeper's reader can
+never drift — creating it now beats refactoring a tagged v0.1.0 later.
+Committed fixtures in gatekeeper/testdata/. Unit tests for every gatekeeper
+row of the CLAUDE.md checklist.
 **Accept:** all gatekeeper checklist tests pass; fuzz target runs clean for
 30s; manual smoke against an ad-hoc local strfry in docker accepts a citizen
-event and rejects a banned one using the committed fixtures. Commit + tag
-v0.1.0.
+event, rejects a banned one, and CONFIRMS strfry routes an ephemeral-kind
+event through the write policy at all (the DECISIONS.md rate-limit call
+assumes it; if strfry never invokes the plugin for ephemeral kinds, note
+that in DECISIONS.md and drop the pinning test). Commit + tag v0.1.0.
 
 ## [ ] Phase 2 — steward core: ledger, tree, elevation (no network)
 ledger.jsonl append/replay with all verbs (invite/remove/ennoble/ban/pardon/
@@ -60,9 +66,10 @@ wrapper (interfaced so tests fake it).
 cycle runs against a scratch strfry in docker-compose with fixture events
 published via nak; banned.json/citizens.json/tree.json come out correct;
 a round-trip test loads steward-written banned.json/citizens.json through
-gatekeeper's actual parser (share the file-format types in one internal
-package — gatekeeper stays dependency-free; this kills fixture/writer
-drift between Phase 1's hand-written fixtures and the real writers).
+gatekeeper's actual parser via the shared internal/stateformat package
+created in Phase 1 (stdlib-only, so gatekeeper's constraint holds; this
+kills fixture/writer drift between Phase 1's hand-written fixtures and the
+real writers).
 
 ## [ ] Phase 3b — stats, name cache, update check
 stats.json per the schema (public counts exclude wards; raids.next null when
@@ -107,8 +114,8 @@ logged to ledger.
 scribe mid-job leaves the cycle untouched.
 
 ## [ ] Phase 6a — towncrier: the public page
-One index.html, < 60KB (bytecheck becomes a hard CI failure in this phase),
-no deps, no build. Public sections per CLAUDE.md: Lord, Court (tree as
+One index.html, < 60KB (the always-strict bytecheck gets wired into the CI
+workflow in this phase), no deps, no build. Public sections per CLAUDE.md: Lord, Court (tree as
 nested <details> with stars), Favored, Citizenry, Vault, Evicted
 (struck-through + expiry, "until the next raid" when manual), Wild West
 ("at the Lord's pleasure" when manual), Exiled, NIP-11 footer,

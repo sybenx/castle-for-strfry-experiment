@@ -54,7 +54,18 @@ doesn't cover. Format: date, decision, one-line why.
   traffic** — an exemption is a second code path, and the token bucket
   exists for write-path abuse, which ephemeral floods are. Citizens are
   already exempt. "Pass through per NIP-16" means strfry doesn't store
-  them; it says nothing about the write path.
+  them; it says nothing about the write path. Mirrored into CLAUDE.md's
+  tier notes (the spec is the source of truth; behaviors must not live
+  only here). Premise — that strfry routes ephemeral kinds through the
+  write policy at all — is verified empirically in the Phase 1 smoke.
+- **bytecheck is strict from day one; phasing lives in CI wiring, not
+  Makefile logic** — a "not yet built, exit 0" soft mode is a conditional
+  that outlives its purpose: after Phase 6a a missing index.html would
+  pass green. One behavior (missing file = fail, >60KB = fail), added to
+  the CI workflow in Phase 6a.
+- **internal/stateformat is born in Phase 1, not retrofitted in 3a** —
+  stdlib-only shared types for banned.json/citizens.json; refactoring a
+  tagged v0.1.0 component mid-project costs more than starting shared.
 - **Every ledger line carries `"v":1`** — ledger.jsonl is the durable
   source of truth; one version field turns a future format change into a
   migration instead of a replay break. Replay fails loudly on unknown
@@ -77,3 +88,8 @@ doesn't cover. Format: date, decision, one-line why.
 - **Domain bans re-enumerate at raid cadence, not cycle cadence.** A spam
   farm's fresh pubkeys live until the next raid. Acceptable: their events
   die in the same raid that bans them.
+- **NIP-46 signer traffic through the castle gets rate-limited** — remote
+  signing uses ephemeral non-citizen client keys, so it rides the stranger
+  bucket (30/min, burst 60). Almost certainly invisible at human signing
+  rates; if the Lord ever hits it, the fix is elevating the client key or
+  raising the bucket, not an exemption code path.
