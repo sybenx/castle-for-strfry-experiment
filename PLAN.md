@@ -21,7 +21,7 @@ runs `make test` on push and asserts both gatekeeper binaries are static
 **Accept:** `make build` produces static binaries for both arches; CI green
 on a trivial test including the static check.
 
-## [ ] Phase 1 — gatekeeper (the plugin)
+## [x] Phase 1 — gatekeeper (the plugin)
 Pure stdlib. stdin/stdout JSONL loop, hashset checks against banned.json /
 citizens.json, Castle Mail recipient rule (pruning-exempt, but mail rides
 the per-IP bucket like anything else — every gift wrap looks

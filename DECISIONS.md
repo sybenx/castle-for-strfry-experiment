@@ -72,8 +72,14 @@ doesn't cover. Format: date, decision, one-line why.
   already exempt. "Pass through per NIP-16" means strfry doesn't store
   them; it says nothing about the write path. Mirrored into CLAUDE.md's
   tier notes (the spec is the source of truth; behaviors must not live
-  only here). Premise — that strfry routes ephemeral kinds through the
-  write policy at all — is verified empirically in the Phase 1 smoke.
+  only here). The gatekeeper-side logic is pinned by
+  `TestDecide_EphemeralStrangerRidesBucket`. The premise this rests on —
+  that strfry actually invokes the write-policy plugin for ephemeral-kind
+  events at all — is still UNVERIFIED: the Phase 1 session had no Docker
+  available, so the real-strfry confirmation PLAN.md calls for did not
+  happen. See `.claude/notes/phase1.md`. Whoever gets Docker next must run
+  it before trusting this line, per PLAN.md's own instruction to drop the
+  pinning test if the premise turns out false.
 - **bytecheck is strict from day one; phasing lives in CI wiring, not
   Makefile logic** — a "not yet built, exit 0" soft mode is a conditional
   that outlives its purpose: after Phase 6a a missing index.html would
@@ -121,6 +127,20 @@ doesn't cover. Format: date, decision, one-line why.
   renders names in the Favored and Evicted sections, and previously had no
   data source for the favorites list at all (stats.json only carries a
   count). Still never wards.
+- **gatekeeper's state directory is hardcoded to `/plugin`, no env var** —
+  CLAUDE.md gives gatekeeper no env config of its own (only steward has a
+  documented env config list), and install.sh already places the
+  gatekeeper binary itself at `/plugin/gatekeeper`, so the deploy layout is
+  already load-bearing on this exact path. An override knob would be a
+  feature not in the spec; tests construct a `*store` directly against a
+  `t.TempDir()` and never go through `main()`, so testability doesn't need
+  it either.
+- **gatekeeper's rate-limit numbers (30/min, burst 60, 10-minute idle
+  eviction) are hardcoded constants, not env-configurable** — CLAUDE.md
+  states these as defaults in prose, not in an env-config list (unlike
+  steward's knobs, which are explicitly named there). Same reasoning as the
+  state-directory decision above: less code, and gatekeeper has no env
+  surface in the spec.
 
 ## Accepted trade-offs (known, intentional)
 
