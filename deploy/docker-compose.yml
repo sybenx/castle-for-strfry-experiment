@@ -7,21 +7,19 @@
 # strfry itself is expected to already exist in the target stack; the only
 # strfry-side changes needed are: mount the castle-state volume at
 # /plugin/, and set writePolicy.plugin = "/plugin/gatekeeper" in
-# strfry.conf (see strfry.conf.patch).
+# strfry.conf (see strfry.conf.patch — the real hand-merge fragment for an
+# existing production strfry.conf).
 #
-# NOTE (found via Phase 1 remediation's real-Docker verification):
-# strfry.conf.patch is a FRAGMENT for hand-merging into an existing
-# strfry.conf, not a complete one — it has no db/dbParams/events/bind
-# stanzas. dockurr/strfry reads its config from /etc/strfry.conf (or
-# $STRFRY_CONFIG), never /app/strfry.conf, so the mount below is at the
-# right path but the file it mounts still isn't a bootable config by
-# itself. A real scratch-stack strfry (for `make smoke`'s eventual
-# gatekeeper assertions) needs a full generated strfry.conf; that's
-# Phase 3a work, tracked there, not solved by this compose file yet.
-
+# The `strfry` service below is the SCRATCH stack `make smoke` boots, not a
+# copy-paste target: strfry.conf.patch is a fragment (no db/dbParams/events
+# stanzas), so it can't boot a container on its own. deploy/smoke-conf/
+# holds a full bootable config (stock dockurr/strfry defaults + the same
+# writePolicy line) reached via $STRFRY_CONFIG rather than bind-mounting
+# over /etc/strfry.conf directly.
 services:
   strfry:
     image: dockurr/strfry:latest
+    container_name: strfry
     # gatekeeper runs as a subprocess of strfry (writePolicy.plugin) and
     # inherits this container's environment — MAIL_RATE_PER_MIN and
     # LANDS_RATE_PER_MIN must live here, not on steward, for the knobs in
@@ -29,10 +27,11 @@ services:
     environment:
       MAIL_RATE_PER_MIN: ${MAIL_RATE_PER_MIN:-10}
       LANDS_RATE_PER_MIN: ${LANDS_RATE_PER_MIN:-0}
+      STRFRY_CONFIG: /config/strfry.conf
     volumes:
       - strfry-data:/app/strfry-db
       - castle-state:/plugin
-      - ./strfry.conf.patch:/etc/strfry.conf:ro
+      - ./smoke-conf:/config:ro
     ports:
       - "7777:7777"
 
@@ -64,3 +63,13 @@ services:
 volumes:
   strfry-data:
   castle-state:
+    # Pinned so deploy/smoke.sh can pre-seed the gatekeeper binary into this
+    # exact volume (via a throwaway container) before strfry ever starts —
+    # the compose default name is project-directory-dependent otherwise.
+    name: castle-state
+
+networks:
+  default:
+    # Pinned so deploy/smoke.sh's one-shot steward container can join this
+    # exact network and resolve the strfry service by its container_name.
+    name: castle-smoke

@@ -7,7 +7,7 @@ tests green and a commit. Do not start a phase until the previous phase's
 acceptance criteria pass. Check off each phase here (`[x]`) when accepted.
 Resist adding anything not in the spec — light as a whip.
 
-## [ ] Phase 0 — Skeleton (30 min)
+## [x] Phase 0 — Skeleton (30 min)
 Repo layout per CLAUDE.md, Go module, Makefile (build/test/smoke/bytecheck,
 cross-compile linux/amd64 + linux/arm64; bytecheck is strict from day one —
 missing towncrier/index.html is a FAILURE, >60KB is a failure; it simply
@@ -21,7 +21,7 @@ runs `make test` on push and asserts both gatekeeper binaries are static
 **Accept:** `make build` produces static binaries for both arches; CI green
 on a trivial test including the static check.
 
-## [ ] Phase 1 — gatekeeper (the plugin)
+## [x] Phase 1 — gatekeeper (the plugin)
 Pure stdlib. stdin/stdout JSONL loop, hashset checks against banned.json /
 citizens.json, Castle Mail recipient rule (pruning-exempt, but mail rides its own
 always-on tight bucket — every gift wrap looks stranger-authored; pin with
@@ -45,7 +45,7 @@ event through the write policy at all (the DECISIONS.md rate-limit call
 assumes it; if strfry never invokes the plugin for ephemeral kinds, note
 that in DECISIONS.md and drop the pinning test). Commit + tag v0.1.0.
 
-## [ ] Phase 2 — steward core: ledger, tree, elevation (no network)
+## [x] Phase 2 — steward core: ledger, tree, elevation (no network)
 ledger.jsonl append/replay with all verbs (invite/remove/ennoble/ban/pardon/
 ban-domain/pardon-domain/elevate/lower/flip-visibility/archive-run/raid-run);
 every ledger line carries `"v":1` from the very first write (one field of
@@ -61,7 +61,7 @@ Property test: ledger replay always reconstructs identical tree + elevation
 **Accept:** all tree + elevation + ledger checklist tests pass, including
 "wards absent from every public projection."
 
-## [ ] Phase 3a — steward cycle: sync + intake
+## [x] Phase 3a — steward cycle: sync + intake
 go-nostr client work: follows sync with follows.json last-good snapshot
 (never shrink on error, survive restart, only replace with newer kind 3);
 kind-1984 report intake with **ledger source-id dedupe — skip any report

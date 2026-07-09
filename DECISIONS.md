@@ -209,3 +209,82 @@ doesn't cover. Format: date, decision, one-line why.
   structurally the same "cut a branch" operation, keyed on whether the root
   was banned or merely removed — easy to get backwards, pinned by
   `TestBanningTreeMemberCutsBranchAndGracePeriodsSubtreeOnly`.
+
+## Phase 3a — steward cycle: sync + intake
+
+- **`ownRelayURL` derives steward's own-relay websocket address from
+  `STRFRY_CONTAINER` instead of adding a separate env var.** CLAUDE.md's
+  follows sync says "own relay + PUBLIC_RELAYS" but never names a knob for
+  it. steward already trusts `STRFRY_CONTAINER` as "which strfry" for
+  `docker exec`; reusing it as `ws://<container>:7777` for the websocket
+  side is one knob, not two, and matches the compose network where the
+  container name is the DNS-resolvable hostname.
+- **Report and reaction fetches read only the Lord's own relay; only kind-3
+  follows sync and react-warding's per-note resolution consult
+  PUBLIC_RELAYS.** CLAUDE.md's follows-sync line explicitly says "own relay
+  + PUBLIC_RELAYS"; the report-intake and react-watermark-fetch lines don't
+  mention PUBLIC_RELAYS at all, and only the "resolve each e-tagged note's
+  author" step explicitly calls for a PUBLIC_RELAYS fallback. Read literally
+  rather than generalized — widening report/reaction intake to
+  PUBLIC_RELAYS would mean trusting reports/reactions from relays other
+  than the castle itself, which CLAUDE.md's "never widen intake" spirit
+  argues against by silence.
+- **`react_watermark.json` is a small standalone cursor file** (`{"since":
+  <ts>}`), not ledger-derived — there is no watermark verb, so it can't be
+  replayed like `Entry`-backed state. Same category as `follows.json`: a
+  last-good external-fetch cursor, atomic-written, that the ledger doesn't
+  own.
+- **React-ward fetches use `Since: watermark + 1`, and the watermark
+  advances past every reaction seen each cycle regardless of outcome**
+  (unresolvable note, already-elevated author, etc.). Advancing
+  unconditionally prevents an unresolvable note from being retried forever;
+  `+1` avoids re-fetching the exact reaction that set the watermark. Accepted
+  edge case: two reactions sharing the same created_at second, one processed
+  and one not yet, could have the second skipped if it arrives after the
+  first's cycle — coarse-grained but harmless (a missed react-ward is not a
+  correctness bug, just a delayed one, and the Lord can re-react or manually
+  ward).
+- **Report/reaction ledger timestamps use cycle processing time
+  (`c.Now()`), not the source event's `created_at`.** A report or reaction
+  can be old by the time steward first processes it (e.g. the very first
+  cycle ever, or a backlog after downtime); using processing time means
+  `Evicted` grace-window timestamps reflect when citizenship actually
+  ended, not when some other client happened to publish the triggering
+  event.
+- **The strfryCLI wrapper (`strfryCLI` interface + `dockerStrfryCLI`) lives
+  in cycle.go**, even though "Delete confinement" describes raid.go and the
+  cycle's purge step as the two call sites — there is no dedicated file for
+  it in CLAUDE.md's repo layout, and cycle.go is where the first call site
+  (purge-newly-banned) lands in Phase 3a. Phase 4's raid.go will import and
+  reuse the same type rather than defining its own.
+- **Purge-newly-banned is never a dry run**, unlike raids. CLAUDE.md's
+  `RAID_DRY_RUN` describes raids specifically ("Raids log what they would
+  delete but delete nothing"); the cycle's immediate ban purge is a
+  Lord-confirmed action already (a signed report or an API ban), not a bulk
+  sweep that needs a safety net before arming.
+- **`make smoke` uses plain `docker` commands, not `docker compose`.** The
+  compose plugin isn't guaranteed present (this environment has the Docker
+  CLI without it), and the scratch stack's exact needs — deterministic
+  container/network names, and pre-seeding the gatekeeper binary into the
+  shared volume *before* strfry's first start so its `writePolicy.plugin`
+  spawn succeeds immediately — are simpler to get right with `docker run`/
+  `docker network create`/`docker volume create` directly.
+  `deploy/docker-compose.yml` remains the documented reference for wiring
+  into a real Portainer stack; `deploy/smoke.sh` does not depend on it.
+- **`deploy/smoke-conf/strfry.conf` is a full, bootable, checked-in config**
+  for the scratch stack only (stock dockurr/strfry defaults + `nofiles`
+  lowered below colima's VM ulimit ceiling + NIP-42 auth off + `writePolicy
+  .plugin` pointed at `/plugin/gatekeeper`), reached via `$STRFRY_CONFIG`
+  rather than bind-mounting over `/etc/strfry.conf` (a single-file mount
+  that races virtiofs's visibility propagation on colima — see
+  `.claude/notes/phase1.md`). `strfry.conf.patch` remains the real
+  hand-merge fragment for an existing production strfry.conf; it was never
+  meant to boot a container on its own.
+- **`make smoke`'s one-shot steward container has no docker CLI or socket**,
+  so the purge-newly-banned step's `docker exec` call fails there (logged to
+  stderr, not fatal — `Cycle.Run` never treats a purge failure as a cycle
+  failure). Acceptable: the smoke test's assertions are about ledger/
+  banned.json/citizens.json correctness and gatekeeper's file-driven
+  enforcement, none of which depend on the purge actually reaching strfry.
+  Exercising the real `docker exec` delete path end-to-end is Phase 4's
+  (the raid's) job, where it's unavoidable.
