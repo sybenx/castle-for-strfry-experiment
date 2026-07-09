@@ -2,6 +2,7 @@ MODULE      := github.com/sybenx/castle-for-strfry-experiment
 BIN_DIR     := bin
 PLATFORMS   := linux/amd64 linux/arm64
 BYTECHECK_MAX := 61440
+VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: build test smoke bytecheck clean
 
@@ -9,8 +10,8 @@ build:
 	@set -e; \
 	for platform in $(PLATFORMS); do \
 		os=$${platform%/*}; arch=$${platform#*/}; \
-		echo "==> building steward $$os/$$arch"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o $(BIN_DIR)/$$os-$$arch/steward ./steward; \
+		echo "==> building steward $$os/$$arch ($(VERSION))"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "-X main.buildVersion=$(VERSION)" -o $(BIN_DIR)/$$os-$$arch/steward ./steward; \
 	done
 
 test:

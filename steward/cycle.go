@@ -14,42 +14,55 @@ import (
 	"time"
 )
 
-// Cycle holds everything one run of the cycle loop needs. Fetcher is an
-// interface precisely so tests can fake the network without a live relay.
+// Cycle holds everything one run of the cycle loop needs. Fetcher, Scanner,
+// and ReleaseChecker are interfaces precisely so tests can fake the network
+// and strfry without either being live.
 type Cycle struct {
-	StateDir     string
-	Owner        string
-	OwnRelay     string
-	PublicRelays []string
-	MaxInvites   int
-	MaxDepth     int
-	Fetcher      NostrFetcher
-	Now          func() time.Time
+	StateDir       string
+	Owner          string
+	OwnRelay       string
+	PublicRelays   []string
+	MaxInvites     int
+	MaxDepth       int
+	OuterTTLDays   int
+	RunningVersion string
+	Fetcher        NostrFetcher
+	Scanner        strfryScanner
+	ReleaseChecker ReleaseChecker
+	Now            func() time.Time
 }
 
-// NewCycle builds a Cycle from config plus the real network dependency.
-// Used by main.go; tests construct a Cycle literal directly with a fake
-// instead.
-func NewCycle(cfg config, fetcher NostrFetcher) *Cycle {
+// NewCycle builds a Cycle from config plus the real network/strfry
+// dependencies. Used by main.go; tests construct a Cycle literal directly
+// with fakes instead.
+func NewCycle(cfg config, fetcher NostrFetcher, scanner strfryScanner, releaseChecker ReleaseChecker) *Cycle {
 	return &Cycle{
-		StateDir:     "/state",
-		Owner:        cfg.OwnerPubkey,
-		OwnRelay:     ownRelayURL(cfg.StrfryContainer),
-		PublicRelays: cfg.PublicRelays,
-		MaxInvites:   cfg.MaxInvites,
-		MaxDepth:     cfg.MaxDepth,
-		Fetcher:      fetcher,
-		Now:          time.Now,
+		StateDir:       "/state",
+		Owner:          cfg.OwnerPubkey,
+		OwnRelay:       ownRelayURL(cfg.StrfryContainer),
+		PublicRelays:   cfg.PublicRelays,
+		MaxInvites:     cfg.MaxInvites,
+		MaxDepth:       cfg.MaxDepth,
+		OuterTTLDays:   cfg.OuterTTLDays,
+		RunningVersion: buildVersion,
+		Fetcher:        fetcher,
+		Scanner:        scanner,
+		ReleaseChecker: releaseChecker,
+		Now:            time.Now,
 	}
 }
 
-func (c *Cycle) ledgerPath() string   { return filepath.Join(c.StateDir, "ledger.jsonl") }
-func (c *Cycle) followsPath() string  { return filepath.Join(c.StateDir, "follows.json") }
-func (c *Cycle) citizensPath() string { return filepath.Join(c.StateDir, "citizens.json") }
-func (c *Cycle) treePath() string     { return filepath.Join(c.StateDir, "tree.json") }
+func (c *Cycle) ledgerPath() string       { return filepath.Join(c.StateDir, "ledger.jsonl") }
+func (c *Cycle) followsPath() string      { return filepath.Join(c.StateDir, "follows.json") }
+func (c *Cycle) citizensPath() string     { return filepath.Join(c.StateDir, "citizens.json") }
+func (c *Cycle) treePath() string         { return filepath.Join(c.StateDir, "tree.json") }
+func (c *Cycle) statsPath() string        { return filepath.Join(c.StateDir, "stats.json") }
+func (c *Cycle) nameCachePath() string    { return filepath.Join(c.StateDir, "name-cache.json") }
+func (c *Cycle) releaseCachePath() string { return filepath.Join(c.StateDir, "release-check.json") }
 
-// Run executes one full cycle: follows sync, then ledger merge (citizens.json
-// and tree.json rewritten atomically). Stats generation is Phase 3b.
+// Run executes one full cycle: follows sync, ledger merge (citizens.json and
+// tree.json rewritten atomically), then stats (stats.json, the name cache,
+// and the daily release check).
 func (c *Cycle) Run(ctx context.Context) error {
 	entries, err := ReadLedger(c.ledgerPath())
 	if err != nil {
@@ -72,6 +85,11 @@ func (c *Cycle) Run(ctx context.Context) error {
 	}
 	if err := writeJSONAtomic(c.treePath(), state.Tree); err != nil {
 		return fmt.Errorf("cycle: write tree.json: %w", err)
+	}
+
+	// 3. Stats.
+	if err := c.generateStats(ctx, state, follows, entries); err != nil {
+		return fmt.Errorf("cycle: generate stats: %w", err)
 	}
 
 	return nil

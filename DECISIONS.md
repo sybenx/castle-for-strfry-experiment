@@ -147,6 +147,41 @@ notes its revert path; none should be rebuilt without an explicit new call.
 - **Re-elevating to the same visibility appends nothing to the ledger**
   (`State.Elevate` returns `ErrNoChange`; the API treats it as 200). The
   ledger records actual events, not API calls that touched nothing.
+- **Outer Lands totals come from one full streaming `strfry scan`, not
+  count-filter subtraction** — verified against upstream: `strfry scan` has
+  no `--count` flag and no "author NOT IN" filter, so "events belonging to
+  no citizen" can't be expressed as a positive filter at all. stats.go's
+  `Count` gets its number by streaming `scan`'s NDJSON output and counting
+  lines (never parsing/slurping them) for the_lord/citizens, which CAN be
+  expressed as positive author filters; outer-lands classification instead
+  streams the whole table once and checks each author client-side against
+  the citizen set — the same pattern CLAUDE.md's raid pseudocode already
+  uses ("stream, don't slurp").
+- **`version.running` comes from `-ldflags -X main.buildVersion=...`**,
+  set by `git describe --tags` in the Makefile; an unflagged `go build`
+  gets `"dev"`. Phase 7's release workflow will pin exact tags at build
+  time; nothing else needed to change.
+- **The GitHub release check caches its result in `release-check.json`
+  with a 24h staleness threshold** — "once a day" (CLAUDE.md) means once a
+  day regardless of CYCLE_MINUTES, so a 10-minute cycle doesn't hit GitHub
+  144 times a day. A failed refresh keeps the last cached tag rather than
+  blanking the update banner.
+- **The kind-0 name cache is fully rebuilt from the CURRENT subject set
+  every cycle** (tree ∪ public favorites ∪ evicted-in-grace) rather than
+  merged with the old file — anyone no longer a subject (lowered, evicted
+  past grace, removed from the tree) is dropped immediately. This is also
+  what makes ward-absence structural rather than a filter that could be
+  forgotten: a ward is simply never in the subject list a fetch is run
+  against.
+- **Every `docker exec <container> strfry ...` call uses the absolute path
+  `/app/strfry`, not bare `strfry`** — verified live against the reference
+  `dockurr/strfry` image (the one deploy/docker-compose.yml and
+  deploy/smoke.sh actually boot): its strfry binary is not on `$PATH`, so
+  the bare command name fails with "executable file not found" via `docker
+  exec`. This also fixed a latent bug in raid.go's `dockerStrfryCLI` (built
+  ahead of Phase 4, never yet run against a real strfry), caught only
+  because Phase 3b's smoke test is the first to actually shell into the
+  live scratch container.
 
 ## Accepted trade-offs (known, intentional)
 

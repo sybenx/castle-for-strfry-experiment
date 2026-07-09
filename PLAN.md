@@ -65,7 +65,7 @@ Remove everything the re-scope cut. One session, mostly deletion:
 only DECISIONS/CLAUDE references, no live code. Commit "the demolition",
 tag v0.2.0.
 
-## [ ] Phase 3b — stats, name cache, update check
+## [x] Phase 3b — stats, name cache, update check
 stats.json per the CLAUDE.md schema (public counts exclude wards;
 raids.next null when manual), batched `strfry scan --count`, daily GitHub
 release check feeding `version` in stats.json. Kind-0 name/avatar cache

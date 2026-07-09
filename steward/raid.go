@@ -27,6 +27,14 @@ type strfryCLI interface {
 
 const deleteBatchSize = 50
 
+// strfryBinPath is where the reference dockurr/strfry image (the one
+// deploy/docker-compose.yml and deploy/smoke.sh actually boot) puts the
+// strfry binary: NOT on $PATH, so `docker exec <container> strfry ...`
+// fails with "executable file not found" against a real container. Every
+// `docker exec` invocation of strfry (here and in stats.go's scanner) uses
+// this absolute path instead of bare "strfry".
+const strfryBinPath = "/app/strfry"
+
 // dockerStrfryCLI is the real strfryCLI, shelling out to
 // `docker exec <container> strfry delete --filter ...`.
 type dockerStrfryCLI struct {
@@ -43,7 +51,7 @@ func (d *dockerStrfryCLI) DeleteByAuthors(ctx context.Context, pubkeys []string,
 			fmt.Fprintf(os.Stderr, "steward: [dry-run] would delete %d authors: %s\n", len(batch), filter)
 			continue
 		}
-		cmd := exec.CommandContext(ctx, "docker", "exec", d.Container, "strfry", "delete", "--filter", string(filter))
+		cmd := exec.CommandContext(ctx, "docker", "exec", d.Container, strfryBinPath, "delete", "--filter", string(filter))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return 0, fmt.Errorf("strfry delete: %w: %s", err, out)

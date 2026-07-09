@@ -3,8 +3,8 @@
 // towncrier's static files, so there is no separate web container. See
 // CLAUDE.md, Component 2.
 //
-// As of Phase 3a this runs the cycle loop (follows sync, ledger merge). The
-// HTTP API and raid land in Phases 4-5.
+// As of Phase 3b this runs the cycle loop (follows sync, ledger merge,
+// stats). The HTTP API and raid land in Phases 4-5.
 package main
 
 import (
@@ -19,6 +19,11 @@ import (
 	"syscall"
 	"time"
 )
+
+// buildVersion is stats.json's version.running. Set via
+// `-ldflags "-X main.buildVersion=..."` at build time (see Makefile);
+// "dev" is what an unflagged `go build` gets.
+var buildVersion = "dev"
 
 // config holds the env-driven settings from CLAUDE.md, Component 2.
 type config struct {
@@ -149,7 +154,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cycle := NewCycle(cfg, relayFetcher{})
+	cycle := NewCycle(cfg, relayFetcher{}, &dockerStrfryScanner{Container: cfg.StrfryContainer}, githubReleaseChecker{})
 
 	runCycle := func() {
 		if err := cycle.Run(ctx); err != nil {
