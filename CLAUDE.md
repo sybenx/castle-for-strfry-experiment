@@ -53,20 +53,22 @@ Every event falls into exactly one tier. First match wins, top to bottom:
 | **The Lord** | `OWNER_PUBKEY` | accept | permanent |
 | **Castle Mail** | kind 1059 (gift wrap) or 9735 (zap receipt) with a `p` tag of the Lord or any citizen | accept | permanent |
 | **Citizens** | tree members ∪ the Lord's follows ∪ the elevated | accept | permanent while citizen |
-| **Outer Lands** | everyone else | accept (rate-limited) | purged at the next raid if older than `OUTER_TTL_DAYS` |
+| **Outer Lands** | everyone else | accept (firehose by default; optional per-IP limit) | purged at the next raid if older than `OUTER_TTL_DAYS` |
 
 Load-bearing subtleties — do not lose these:
 
 - **Castle Mail is judged by recipient, not author.** NIP-59 gift wraps are
   signed by random one-time keys; author-based rules are blind to them. Match
   kind ∈ {1059, 9735} AND any `p` tag ∈ (Lord ∪ citizens). This rule precedes
-  author rules and is exempt from pruning — but NOT from the per-IP rate
-  limiter. Gift wraps are stranger-authored by construction (random one-time
-  keys), so an unthrottled permanent write path would be open to literally
-  anyone; human DM rates never touch the bucket (the NIP-46 argument), and
-  the same anonymity means banned pubkeys can still write the Lord — appeals
-  remain possible by design. Without the recipient rule itself the Lord's
-  own DMs get rejected or purged. Stranger-to-stranger gift
+  author rules and is exempt from pruning — but Castle Mail gets its OWN
+  tight per-IP bucket, and that bucket is ALWAYS on: mail is the one lane
+  where a stranger earns permanent storage, so it is the one lane that is
+  always throttled. Gift wraps are stranger-authored by construction
+  (random one-time keys), so every wrap rides the mail bucket — including
+  the Lord's own sends, which at human DM rates never notice it. The same
+  anonymity means banned pubkeys can still write the Lord — appeals remain
+  possible by design, just never at flood speed. Without the recipient rule
+  itself the Lord's own DMs get rejected or purged. Stranger-to-stranger gift
   wraps match no rule, land in Outer Lands, and age out — that is the
   "ephemeral DMs for everyone" behavior, and it is intentional.
 - **Ban check precedes everything.** steward must refuse to ever ban
@@ -80,9 +82,10 @@ Load-bearing subtleties — do not lose these:
   sees domains; steward resolves banned domains to pubkeys (see Ban intake)
   and only pubkeys ever reach `banned.json`. gatekeeper stays O(1).
 - Ephemeral kinds (20000–29999) pass through per NIP-16 (strfry doesn't
-  store them) but are NOT exempt from the write path: non-citizen ephemeral
-  traffic goes through the same per-IP token bucket as any stranger event.
-  Citizens are exempt as always. Ignore ephemeral kinds in stats.
+  store them) but are NOT a special case on the write path: non-citizen ephemeral
+  traffic gets stranger treatment — the lands bucket, whatever its setting
+  (so unlimited at the default). Citizens are exempt as always. Ignore
+  ephemeral kinds in stats.
 
 ## The elevation model
 
@@ -162,16 +165,23 @@ must accept their events) but is a shared-volume file, never an API response.
 - Reads `banned.json` and `citizens.json` from the shared volume; stats mtime
   ≤ 1/sec (poll interval injectable, so tests don't depend on wall-clock);
   hot-reloads into hashsets. Missing files = empty sets (fail open).
-- Per-IP token bucket for all non-citizen-authored events, Castle Mail
-  included (permanence exempts mail from raids, never from the write path):
-  default 30 events/min, burst 60. Evict buckets idle > 10 minutes (unbounded IP
-  churn must not grow memory forever).
+- TWO per-IP token buckets, burst = 2× rate, one code path each:
+  - **Mail bucket** — ALWAYS on; Castle Mail only. `MAIL_RATE_PER_MIN`
+    (default 10). Permanence exempts mail from raids, never from the write
+    path.
+  - **Lands bucket** — OFF by default; every other non-citizen event.
+    `LANDS_RATE_PER_MIN` (default 0 = unlimited — the outer lands are a
+    firehose; the raid, not a prefilter, is the moderation). Operators of
+    larger or spam-prone relays can set it (e.g. 60 ≈ 1 event/sec).
+  Evict buckets idle > 10 minutes (unbounded IP churn must not grow memory
+  forever).
 - **`sourceInfo` is only meaningful if strfry is configured with
   `relay.realIpHeader` behind the reverse proxy** — otherwise every writer
   shares the proxy's IP and the limiter is either a no-op or a self-DoS.
   Document in deploy/, verify in the smoke test.
 - Themed reject messages: banned → `blocked: you have been exiled from these
-  lands`; rate limit → `rate-limited: the outer lands are crowded`.
+  lands`; lands limit → `rate-limited: the outer lands are crowded`; mail limit →
+  `rate-limited: the lord's courier is overburdened`.
 - Test fixtures (`citizens.json`, `banned.json`, event lines) are committed
   under `gatekeeper/testdata/`.
 
@@ -189,6 +199,8 @@ Env config: `OWNER_PUBKEY` (hex), `STRFRY_CONTAINER`, `PUBLIC_RELAYS`
 (comma-sep), `OUTER_TTL_DAYS=30`, `CYCLE_MINUTES=10`,
 `RAID_CRON=""` (empty = manual raids only, the default), `RAID_DRY_RUN=true`
 (default ON for first deploy), `MAX_INVITES=5`, `MAX_DEPTH=4`,
+`MAIL_RATE_PER_MIN=10` and `LANDS_RATE_PER_MIN=0` (read by gatekeeper;
+0 = unlimited),
 `NIP05_DOMAIN` (optional; enables serving `/.well-known/nostr.json`),
 `LISTEN=:8787`.
 
@@ -471,9 +483,10 @@ steward uses github.com/nbd-wtf/go-nostr. gatekeeper stays stdlib-only.
 
 - gatekeeper: banned rejected; citizen accepted; ward accepted (from
   citizens.json — the file carries no visibility info); gift wrap p-tagging
-  a citizen accepted from an unknown author but riding the per-IP bucket
-  like any stranger event (permanence ≠ bucket exemption); stranger
-  rate-limited after burst; malformed line survives; fuzz target passes;
+  a citizen accepted from an unknown author but riding the always-on mail
+  bucket (permanence ≠ bucket exemption); a stranger firehose passes
+  untouched at the default LANDS_RATE_PER_MIN=0; with the lands bucket set,
+  a stranger is limited after burst; malformed line survives; fuzz target passes;
   hot-reload within one poll interval; bucket eviction works.
 - tree: invite respects MAX_INVITES/MAX_DEPTH; member can't remove
   non-invitee; Lord removes anyone; cut branch drops whole subtree; ennobled
@@ -535,7 +548,11 @@ steward uses github.com/nbd-wtf/go-nostr. gatekeeper stays stdlib-only.
 - **`strfry delete` is confined to one wrapper and two call sites** (raid,
   purge-newly-banned). The only irreversible operation gets exactly one
   choke point where dry-run, batching, and audit live.
-- **The raid is the moderation.** Spam is not judged, it is outlived. The
+- **The raid is the moderation.** The default write path is a firehose
+  (lands bucket off): months of running a fully open strfry produced only
+  mild spam, and public posts age out at the next raid anyway. Aggressive
+  prefiltering is an operator knob, never a default. Spam is not judged,
+  it is outlived. The
   Lord's value judgment is elevation (follow, invite, favorite, ward), not
   ban-chasing. The blacklist is a scalpel for content that can't wait 30
   days and for write-path abusers; if it grows long, revisit the design —

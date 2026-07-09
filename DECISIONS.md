@@ -6,6 +6,14 @@ doesn't cover. Format: date, decision, one-line why.
 
 ## Rejected (do not build)
 
+- **Building our own relay instead of attaching to strfry** — the castle's
+  value is policy, not storage. strfry already does the hard part (LMDB
+  engine, firehose-grade ingest, protocol conformance, sync) better than a
+  rewrite ever would, the firehose-by-default outer lands lean on exactly
+  that strength, and the sidecar+plugin shape is what lets any existing
+  strfry operator adopt the castle without migrating data. The ledger and
+  flat state files keep the door open to a different engine someday;
+  walking through it is a different project.
 - **Guests tier / thread-context promotion / protected_events.json** —
   required storing event ids (violates the state invariant) and duplicated
   the Lord's Chronicle relay. Thread context is Chronicle's job.
@@ -61,25 +69,26 @@ doesn't cover. Format: date, decision, one-line why.
   just this relay). Real idea, wrong day: extension support for unwrapping
   gift wraps is inconsistent, it strains the 60KB budget, and the purge
   would be a THIRD `strfry delete` call site — if ever built it must route
-  through the existing wrapper. The per-IP bucket plus the visible Vault
+  through the existing wrapper. The mail bucket plus the visible Vault
   count cover v1; demand should precede code.
 
 ## Decided (calls CLAUDE.md didn't make)
 
-- **Ephemeral kinds (20000–29999) are rate-limited like any stranger
-  traffic** — an exemption is a second code path, and the token bucket
-  exists for write-path abuse, which ephemeral floods are. Citizens are
-  already exempt. "Pass through per NIP-16" means strfry doesn't store
-  them; it says nothing about the write path. Mirrored into CLAUDE.md's
-  tier notes (the spec is the source of truth; behaviors must not live
-  only here). The gatekeeper-side logic is pinned by
-  `TestDecide_EphemeralStrangerRidesBucket`. The premise this rests on —
-  that strfry actually invokes the write-policy plugin for ephemeral-kind
-  events at all — is still UNVERIFIED: the Phase 1 session had no Docker
-  available, so the real-strfry confirmation PLAN.md calls for did not
-  happen. See `.claude/notes/phase1.md`. Whoever gets Docker next must run
-  it before trusting this line, per PLAN.md's own instruction to drop the
-  pinning test if the premise turns out false.
+- **Ephemeral kinds (20000–29999) get stranger treatment — the lands
+  bucket, whatever its setting (unlimited at the default)** — a special
+  case is a second code path; whatever rule governs stranger posts governs
+  ephemeral floods too. Citizens are already exempt. "Pass through per
+  NIP-16" means strfry doesn't store them; it says nothing about the write
+  path. Mirrored into CLAUDE.md's tier notes (the spec is the source of
+  truth; behaviors must not live only here). The gatekeeper-side logic is
+  pinned by `TestDecide_EphemeralStrangerRidesBucket`, which must run with
+  the lands bucket ENABLED, since at the default it is unlimited. The
+  premise this rests on — that strfry actually invokes the write-policy
+  plugin for ephemeral-kind events at all — is still UNVERIFIED: the
+  Phase 1 session had no Docker available, so the real-strfry confirmation
+  PLAN.md calls for did not happen. See `.claude/notes/phase1.md`. Whoever
+  gets Docker next must run it before trusting this line, per PLAN.md's own
+  instruction to drop the pinning test if the premise turns out false.
 - **bytecheck is strict from day one; phasing lives in CI wiring, not
   Makefile logic** — a "not yet built, exit 0" soft mode is a conditional
   that outlives its purpose: after Phase 6a a missing index.html would
@@ -111,13 +120,21 @@ doesn't cover. Format: date, decision, one-line why.
   before any code exists so there is no migration. The stray "courtyard"
   wording is unified under the same name (env var is now OUTER_TTL_DAYS,
   reject message and neglect nudge reworded): one concept, one name.
-- **Castle Mail rides the per-IP token bucket** — permanence exempts mail
-  from raids, never from the write path. Gift wraps are stranger-authored
-  by construction (random one-time keys), so a bucket exemption was an
-  unthrottled permanent write lane open to anyone. Human DM rates never
-  touch the bucket (the NIP-46 argument), and sender anonymity already
-  preserves the appeals path: banned pubkeys can still write the Lord,
-  just not at flood speed. Caught in spec review.
+- **Two buckets, inverted from the first draft: mail is always throttled,
+  the outer lands are a firehose by default** — mail (kind 1059/9735 to the
+  Lord or a citizen) is the one lane where a stranger earns PERMANENT
+  storage, so its tight bucket (MAIL_RATE_PER_MIN=10, burst 2×) is always
+  on; public posts age out at the next raid anyway, and months of running a
+  fully open strfry produced only mild spam, so LANDS_RATE_PER_MIN defaults
+  to 0 (unlimited) and is an operator knob for larger or spam-prone relays.
+  Human DM rates never notice the mail bucket, and gift-wrap sender
+  anonymity preserves the appeals path: banned pubkeys can still write the
+  Lord, just never at flood speed. SUPERSEDES two Phase 1 calls made
+  against a stale copy of the spec: "Castle Mail rides the (single) per-IP
+  token bucket" and "rate-limit numbers are hardcoded constants, not
+  env-configurable" — both rates are env knobs read by gatekeeper, per the
+  final CLAUDE.md. Gatekeeper remediation tracked in
+  `.claude/notes/phase1-remediation.md`.
 - **/api/elevate SETS the requested visibility; only flip-visibility
   toggles — and react-warding skips OWNER_PUBKEY and the already-elevated**
   — blind toggling meant the Lord liking a favorite's note silently demoted
@@ -128,19 +145,12 @@ doesn't cover. Format: date, decision, one-line why.
   data source for the favorites list at all (stats.json only carries a
   count). Still never wards.
 - **gatekeeper's state directory is hardcoded to `/plugin`, no env var** —
-  CLAUDE.md gives gatekeeper no env config of its own (only steward has a
-  documented env config list), and install.sh already places the
-  gatekeeper binary itself at `/plugin/gatekeeper`, so the deploy layout is
-  already load-bearing on this exact path. An override knob would be a
-  feature not in the spec; tests construct a `*store` directly against a
-  `t.TempDir()` and never go through `main()`, so testability doesn't need
-  it either.
-- **gatekeeper's rate-limit numbers (30/min, burst 60, 10-minute idle
-  eviction) are hardcoded constants, not env-configurable** — CLAUDE.md
-  states these as defaults in prose, not in an env-config list (unlike
-  steward's knobs, which are explicitly named there). Same reasoning as the
-  state-directory decision above: less code, and gatekeeper has no env
-  surface in the spec.
+  install.sh already places the gatekeeper binary itself at
+  `/plugin/gatekeeper`, so the deploy layout is load-bearing on this exact
+  path, and an override knob would be a feature the spec doesn't ask for.
+  Tests construct a `*store` directly against a `t.TempDir()` and never go
+  through `main()`, so testability doesn't need it either. (The two rate
+  env knobs are gatekeeper's entire env surface.)
 
 ## Accepted trade-offs (known, intentional)
 
@@ -159,11 +169,11 @@ doesn't cover. Format: date, decision, one-line why.
 - **Domain bans re-enumerate at raid cadence, not cycle cadence.** A spam
   farm's fresh pubkeys live until the next raid. Acceptable: their events
   die in the same raid that bans them.
-- **NIP-46 signer traffic through the castle gets rate-limited** — remote
-  signing uses ephemeral non-citizen client keys, so it rides the stranger
-  bucket (30/min, burst 60). Almost certainly invisible at human signing
-  rates; if the Lord ever hits it, the fix is elevating the client key or
-  raising the bucket, not an exemption code path.
+- **NIP-46 signer traffic rides the lands bucket** — remote signing uses
+  ephemeral non-citizen client keys, so it gets stranger treatment:
+  unlimited at the default, throttled only where an operator has set
+  LANDS_RATE_PER_MIN. If such a Lord ever hits it, the fix is elevating the
+  client key or raising the number, not an exemption code path.
 - **Archiving a ward emits a metadata signal** — the scribe sends
   `{"authors":[ward]}` REQs to public relays, announcing the castle's
   interest in that pubkey to third parties. Same obscurity budget as ward

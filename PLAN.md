@@ -7,13 +7,13 @@ tests green and a commit. Do not start a phase until the previous phase's
 acceptance criteria pass. Check off each phase here (`[x]`) when accepted.
 Resist adding anything not in the spec — light as a whip.
 
-## [x] Phase 0 — Skeleton (30 min)
+## [ ] Phase 0 — Skeleton (30 min)
 Repo layout per CLAUDE.md, Go module, Makefile (build/test/smoke/bytecheck,
 cross-compile linux/amd64 + linux/arm64; bytecheck is strict from day one —
 missing towncrier/index.html is a FAILURE, >60KB is a failure; it simply
 isn't wired into CI until Phase 6a, so the guard has one behavior and can
 never rot into a no-op), .env.example (RAID_DRY_RUN=true,
-RAID_CRON empty), empty test files, stub main.go for gatekeeper and steward
+RAID_CRON empty, LANDS_RATE_PER_MIN=0, MAIL_RATE_PER_MIN=10), empty test files, stub main.go for gatekeeper and steward
 (so `make build` and the CI static-binary assertion have something to
 compile from day one), seeded DECISIONS.md, CI workflow that
 runs `make test` on push and asserts both gatekeeper binaries are static
@@ -21,16 +21,18 @@ runs `make test` on push and asserts both gatekeeper binaries are static
 **Accept:** `make build` produces static binaries for both arches; CI green
 on a trivial test including the static check.
 
-## [x] Phase 1 — gatekeeper (the plugin)
+## [ ] Phase 1 — gatekeeper (the plugin)
 Pure stdlib. stdin/stdout JSONL loop, hashset checks against banned.json /
-citizens.json, Castle Mail recipient rule (pruning-exempt, but mail rides
-the per-IP bucket like anything else — every gift wrap looks
-stranger-authored; pin with a test), per-IP token bucket with idle
-eviction, mtime hot reload with injectable poll interval, fail-open on
+citizens.json, Castle Mail recipient rule (pruning-exempt, but mail rides its own
+always-on tight bucket — every gift wrap looks stranger-authored; pin with
+a test), the two per-IP token buckets with idle eviction (mail always on,
+default 10/min; lands OFF by default — pin that LANDS_RATE_PER_MIN=0
+passes a firehose untouched), mtime hot reload with injectable poll interval, fail-open on
 missing files, malformed-line resilience, a native fuzz target on the stdin
 loop, themed reject messages. Ephemeral kinds (20000–29999) from
-non-citizens go through the same token bucket — no exemption (see
-DECISIONS.md); pin this with a test. The banned.json/citizens.json format
+non-citizens get stranger treatment — the lands bucket, no special case
+(see DECISIONS.md); pin this with a test run with the lands bucket enabled,
+since at the default it is unlimited. The banned.json/citizens.json format
 types are born in a shared, stdlib-only internal package (e.g.
 internal/stateformat) so Phase 3a's writers and gatekeeper's reader can
 never drift — creating it now beats refactoring a tagged v0.1.0 later.
@@ -43,7 +45,7 @@ event through the write policy at all (the DECISIONS.md rate-limit call
 assumes it; if strfry never invokes the plugin for ephemeral kinds, note
 that in DECISIONS.md and drop the pinning test). Commit + tag v0.1.0.
 
-## [x] Phase 2 — steward core: ledger, tree, elevation (no network)
+## [ ] Phase 2 — steward core: ledger, tree, elevation (no network)
 ledger.jsonl append/replay with all verbs (invite/remove/ennoble/ban/pardon/
 ban-domain/pardon-domain/elevate/lower/flip-visibility/archive-run/raid-run);
 every ledger line carries `"v":1` from the very first write (one field of
@@ -161,8 +163,8 @@ clean container running a stock strfry compose stack.
 **Accept:** following install.sh's printed instructions on a fresh box
 yields a working castle with manual dry-run raids; with the printed proxy
 config applied, the smoke test verifies the real-IP header reaches
-gatekeeper (two client IPs get independent rate buckets — per CLAUDE.md,
-without this the limiter is a no-op or a self-DoS); uninstall leaves the
+gatekeeper (two client IPs get independent mail-bucket allowances — per
+CLAUDE.md, without the real IP the limiter is a no-op or a self-DoS); uninstall leaves the
 stock setup intact.
 
 ## Standing orders
