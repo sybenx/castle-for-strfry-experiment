@@ -48,3 +48,38 @@ Record the outcome in `.claude/notes/phase1.md` (replacing the UNVERIFIED
 note) and update the DECISIONS.md ephemeral entry accordingly.
 
 ## Step 3 — only then start Phase 3a.
+
+---
+
+## Outcome (this remediation session)
+
+All three steps completed and committed:
+
+- **Step 0** — already done in a prior commit (`0b3d8ab`) before this
+  session started; CLAUDE.md/PLAN.md/DECISIONS.md were already the final
+  versions when this session began.
+- **Step 1** — `gatekeeper/main.go` reworked to a `limiters{mail, lands
+  *limiter}` struct; `MAIL_RATE_PER_MIN`/`LANDS_RATE_PER_MIN` are now env
+  vars read via `envRate()` at startup (default 10 / 0); lands is `nil`
+  (fully unlimited) rather than a zero-rate bucket when disabled. Themed
+  messages split into `msgMailRateLimit` / `msgLandsRateLimit`. Full test
+  suite rewritten per the checklist above, plus a new
+  `TestNewLimiters_LandsDisabledAtZero`. `.env.example` and
+  `deploy/docker-compose.yml` (strfry service environment) updated so the
+  knobs actually reach the plugin subprocess. `go test ./...` (gatekeeper +
+  stateformat + steward, including elevation privacy tests) all green;
+  30s fuzz run clean. Tagged `v0.1.1`. Commit `4823983`.
+- **Step 2** — Docker became available this session. Verified against a
+  real `dockurr/strfry:latest` container with the compiled gatekeeper
+  wired in as `writePolicy.plugin`: citizen accepted, banned rejected with
+  the exact themed message, and — the previously UNVERIFIED premise —
+  strfry DOES route ephemeral-kind (20000–29999) events through the write
+  policy plugin (confirmed via a kind-20001 event from a banned pubkey
+  coming back rejected). `TestDecide_EphemeralStrangerRidesBucket` stands.
+  Also found and fixed a real bug: `deploy/docker-compose.yml` mounted
+  `strfry.conf.patch` at `/app/strfry.conf`, a path strfry never reads
+  (real path: `/etc/strfry.conf`) — `make smoke`'s scratch strfry was
+  silently running with no write policy at all. Findings recorded in
+  `.claude/notes/phase1.md` and `DECISIONS.md`. Commit `1397ac8`.
+
+Phase 3a is clear to start.
