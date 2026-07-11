@@ -73,14 +73,57 @@ volumes:
 
 Copy `.env.example` to `.env` and fill in `OWNER_PUBKEY` (hex — the Lord's
 pubkey) and `STRFRY_CONTAINER` (the name of your strfry container; steward
-reaches it via `docker exec`, not the network). Then point a reverse proxy
-at it — see `deploy/Caddyfile` and `deploy/nginx.conf` for both: route
-WebSocket upgrades and `Accept: application/nostr+json` to strfry,
-everything else (towncrier + `/api`) to steward, and forward a real client
-IP so steward's per-IP rate limit sees actual clients rather than the
-proxy.
+reaches it via `docker exec`, not the network). Then set up your reverse
+proxy — see [Reverse proxy setup](#reverse-proxy-setup) below.
 
 `docker compose up -d steward` and open the relay's URL in a browser.
+
+## Reverse proxy setup
+
+Before castle, your reverse proxy almost certainly sent every request for
+the relay's domain straight to `strfry:7777` — there was nothing else to
+route to. Adding castle means splitting that one route into two:
+WebSocket upgrades and NIP-11 requests (`Accept: application/nostr+json`)
+still go to strfry; everything else (towncrier, `/api`) goes to steward.
+`deploy/Caddyfile` and `deploy/nginx.conf` show that split, but they're
+written as standalone server blocks — in practice you're almost always
+merging this routing into a config that already exists for your domain,
+not dropping in a new file. Steps:
+
+1. Find the existing block for your relay's domain: the site block in
+   your `Caddyfile`, or the nginx `server { }` in `sites-enabled/` (or
+   wherever your distro/panel keeps it).
+2. Replace whatever currently forwards *all* traffic to strfry with the
+   matcher/location logic from `deploy/Caddyfile` or `deploy/nginx.conf`:
+   the WebSocket and NIP-11 matchers keep pointing at strfry, and the
+   catch-all now points at `steward:8787` instead of `strfry:7777`. Leave
+   every other directive in the block alone — TLS, ACME challenge
+   locations, existing headers — you're only changing the catch-all's
+   destination.
+3. Order matters. In nginx, the `if` blocks in `deploy/nginx.conf` each
+   end in `break` so they short-circuit before falling through to the
+   `steward` `proxy_pass` — keep them ahead of any other `location /` you
+   already have. In Caddy, `handle` blocks are evaluated top-to-bottom and
+   the first match wins; same idea.
+4. Forward the real client IP (`X-Real-IP` / `X-Forwarded-For`, as in the
+   examples) so steward's per-IP API rate limit sees actual clients
+   instead of the proxy's address.
+5. If strfry and steward aren't on the same docker network as your proxy,
+   the `strfry:7777` / `steward:8787` hostnames won't resolve — use the
+   real container names, or put all three on a shared network.
+6. Reload the proxy (`caddy reload`, `nginx -s reload`, or your panel's
+   equivalent) and check all three routes land correctly:
+   - `curl -sI https://your-domain/` → steward (towncrier HTML)
+   - `curl -s -H 'Accept: application/nostr+json' https://your-domain/` →
+     strfry's NIP-11 document
+   - `nak req -k 1 wss://your-domain` (or any WebSocket client) → strfry
+
+If your strfry install is managed by a platform with its own reverse
+proxy (Umbrel, a hosting panel, etc.) rather than a Caddyfile/nginx.conf
+you edit by hand, `install.sh` deliberately doesn't touch it for you —
+you'll need that platform's own way of adding a second backend on the
+same domain. Auto-patching an unknown managed config is exactly the kind
+of thing that bricks a relay (see `DECISIONS.md`).
 
 ## The docker.sock trade-off
 
