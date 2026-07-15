@@ -349,7 +349,7 @@ Signed-in view (one "Enter the castle" button → NIP-07):
 ```json
 {
   "updated_at": 1730000000,
-  "version": {"running": "v0.3.0", "latest": "v0.3.1"},
+  "version": {"running": "v0.3.0", "latest": "v0.3.1", "status": "update"},
   "the_lord": {"pubkey": "<hex>", "events": 12345},
   "citizens": {"tree": 47, "follows": 812, "favored": 6, "events": 480211},
   "evicted": [{"pubkey": "<hex>", "expires": 1730073600}],

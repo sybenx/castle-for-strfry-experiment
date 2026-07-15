@@ -140,7 +140,10 @@ on ghcr.io), and the published image smoke-tested against a scratch strfry
 container — `docker exec` from inside the image worked, stats.json's
 `version.running` matched the tag.
 
-## [ ] Phase 8 — version-banner correctness (move comparison into steward)
+## [x] Phase 8 — version-banner correctness (move comparison into steward)
+*(Shipped as `version.status` — a four-value derived signal rather than a
+bool; see DECISIONS.md, "`version.status` is steward's derived update
+signal".)*
 
 Code review of the working-tree towncrier version-banner change (see
 DECISIONS.md for the finding) found the client-side `versionIsNewer` +

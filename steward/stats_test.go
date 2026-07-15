@@ -410,6 +410,55 @@ func TestCensus_WardIndistinguishable(t *testing.T) {
 	}
 }
 
+// TestVersionStatus pins the one place version ordering is decided (CLAUDE.md:
+// "Version comparison is steward's job, not towncrier's"). The cases are the
+// real strings the Makefile's `git describe --tags --always --dirty` and
+// GitHub's tag_name can produce — including every misclassification the
+// Phase 8 code review found in the old client-side regex approach.
+func TestVersionStatus(t *testing.T) {
+	cases := []struct {
+		running, latest, want string
+	}{
+		{"v0.6.0", "v0.6.0", "current"},           // exact release build, up to date
+		{"v0.4.1-5-gabc1234", "v0.6.0", "update"}, // describe build of an OLD base: genuinely behind
+		{"v0.6.0-5-gabc1234", "v0.6.0", "ahead"},  // describe build past the latest tag
+		{"v0.6.0-dirty", "v0.6.0", "ahead"},       // dirty build of the latest tag
+		{"v0.7.0", "v0.6.0", "ahead"},             // tagged ahead of the published release
+		{"dev", "v0.6.0", "unknown"},              // ldflags fallback: position unknowable
+		{"57920d8", "v0.6.0", "unknown"},          // git describe --always bare hash (shallow clone)
+		{"0.6.0", "v0.6.0", "current"},            // unprefixed running, same release
+		{"v0.6.0", "0.6.1", "update"},             // unprefixed latest still compares
+		{"v0.6.0", "nightly", "unknown"},          // unparseable latest: never an update prompt
+		{"v0.9.0", "v0.10.0", "update"},           // numeric, not lexicographic
+		{"v0.10.0", "v0.9.0", "ahead"},            //
+		{"v1.0.0", "v1.0.0-rc1", "current"},       // equal cores, exact running: no downgrade prompt
+		{"dev", "", ""},                           // no latest known: no banner at all
+		{"v0.6.0", "", ""},                        //
+		{"dev", "dev", "current"},                 // identical unparseable strings
+	}
+	for _, tc := range cases {
+		if got := versionStatus(tc.running, tc.latest); got != tc.want {
+			t.Errorf("versionStatus(%q, %q) = %q, want %q", tc.running, tc.latest, got, tc.want)
+		}
+	}
+}
+
+func TestStats_VersionStatusInStatsJSON(t *testing.T) {
+	c := newTestCycle(t, &fakeFetcher{})
+	c.RunningVersion = "v0.4.1-5-gabc1234"
+	c.ReleaseChecker = &fakeReleaseChecker{latest: "v0.6.0"}
+
+	mustRun(t, c)
+
+	var stats Stats
+	if err := json.Unmarshal([]byte(readRaw(t, c.statsPath())), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Version.Status != "update" {
+		t.Fatalf("version.status = %q, want %q (stale describe build must get the update nudge)", stats.Version.Status, "update")
+	}
+}
+
 func TestCheckRelease_CachesDaily(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	c := newTestCycle(t, &fakeFetcher{})

@@ -72,6 +72,7 @@ button.mini.primary:hover{background:var(--gold)}
 .starbtn{background:none;border:none;color:var(--gold);cursor:pointer;font-size:1em;padding:0 2px;margin-left:2px}
 .starbtn:hover{color:#fff}
 .hint{color:var(--dim);font-size:.8em}
+code{word-break:break-all;font-size:.9em}
 .row .rowctrl{margin-left:auto;flex:none}
 #sec-wards{display:none}
 .crow{display:flex;gap:10px;align-items:center;padding:4px 0;font-size:.9em}
@@ -282,22 +283,6 @@ function favoredRow(f){
     lower + '</div>';
 }
 
-// versionIsNewer reports whether a's numeric core (vX.Y.Z, ignoring any
-// -N-gHASH/-dirty suffix git describe appends) is strictly greater than
-// b's. Returns false — not "unknown" — when either fails to parse, since
-// callers only use it after already routing unparseable running versions
-// (git-describe builds, "dev") down the preview-software path.
-function versionIsNewer(a, b){
-  const ta = /^v?(\d+)\.(\d+)\.(\d+)/.exec(a);
-  const tb = /^v?(\d+)\.(\d+)\.(\d+)/.exec(b);
-  if (!ta || !tb) return false;
-  for (let i = 1; i <= 3; i++) {
-    const na = +ta[i], nb = +tb[i];
-    if (na !== nb) return na > nb;
-  }
-  return false;
-}
-
 function fmtAge(unixSeconds){
   if (!unixSeconds) return 'unknown';
   const days = Math.floor((Date.now()/1000 - unixSeconds) / 86400);
@@ -413,22 +398,24 @@ function renderStats(stats){
 
   const oldBanner = document.getElementById('version-banner');
   if (oldBanner) oldBanner.remove();
-  const running = stats.version && stats.version.running;
-  const latest = stats.version && stats.version.latest;
-  if (latest && running && latest !== running) {
+  // Version ordering is steward's decision (version.status), never inferred
+  // here from the raw tag strings — see CLAUDE.md, "Name cache and update
+  // banner".
+  const v = stats.version || {};
+  if (v.status && v.status !== 'current') {
     const tag = document.createElement('p');
     tag.id = 'version-banner';
     tag.className = 'note';
-    // A build tag that isn't exactly "vX.Y.Z" (git describe appends
-    // -N-gHASH/-dirty past a tag, or it's "dev") is ahead of its base
-    // release, not behind it — comparing it to the latest published tag
-    // would wrongly claim that older tag is "newer".
-    if (!/^v\d+\.\d+\.\d+$/.test(running) || versionIsNewer(running, latest)) {
-      tag.innerHTML = 'Thank you for running preview software (<strong>' + esc(running) +
-        '</strong>), ahead of the latest release (' + esc(latest) + ').';
-    } else {
-      tag.innerHTML = 'A newer version is available: <strong>' + esc(latest) +
-        '</strong> (running ' + esc(running) + '). Update with the command in your README.';
+    if (v.status === 'update') {
+      tag.innerHTML = 'A newer version is available: <strong>' + esc(v.latest) +
+        '</strong> (running ' + esc(v.running) + '). Update:<br>' +
+        '<code>curl -fsSL https://raw.githubusercontent.com/sybenx/castle-for-strfry-experiment/main/install.sh | bash</code>';
+    } else if (v.status === 'ahead') {
+      tag.innerHTML = 'Thank you for running preview software (<strong>' + esc(v.running) +
+        '</strong>), ahead of the latest release (' + esc(v.latest) + ').';
+    } else { // "unknown" — an unparseable build stamp; claim nothing either way
+      tag.innerHTML = 'Running <strong>' + esc(v.running) +
+        '</strong>; the latest published release is ' + esc(v.latest) + '.';
     }
     document.getElementById('sec-outerlands').appendChild(tag);
   }

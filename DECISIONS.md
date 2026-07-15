@@ -345,6 +345,25 @@ notes its revert path; none should be rebuilt without an explicit new call.
   split-domain deployments; RELAY_URL never entered the auth path in the
   first place, so there was nothing to change.
 
+- **`version.status` is steward's derived update signal** —
+  `"update" | "ahead" | "unknown" | "current"` (or absent when no latest is
+  known), computed in ONE tested Go function (`versionStatus`, stats.go)
+  from the raw running/latest strings; towncrier renders it verbatim and
+  never compares tags itself. Semantics chosen: numeric cores decide
+  (optional v-prefix, so `0.6.0` == `v0.6.0`); equal cores with a
+  git-describe suffix (`-N-gHASH`/`-dirty`) = "ahead" (commits past the
+  tag); unparseable running (`dev`, a bare `--always` hash from a shallow
+  clone) or unparseable latest = "unknown", rendered as a neutral
+  "running X; latest release is Y" — NEVER as "ahead" (the first draft's
+  client-side regex claimed dev builds were ahead of releases they could
+  be months behind) and never as an update nag (deliberate dev builds
+  would be nagged forever). Equal cores with exact running vs a suffixed
+  latest (`v1.0.0` vs rc-style `v1.0.0-rc1`) = "current": never prompt a
+  downgrade. The update banner embeds the actual one-line command
+  (install.sh's curl-pipe, idempotent per the README) instead of pointing
+  at the README, satisfying CLAUDE.md's "banner with the one-line update
+  command" verbatim.
+
 ## The Census re-scope (2026-07-14)
 
 The Lord chose to formally reopen a slice of the rejected surface — a

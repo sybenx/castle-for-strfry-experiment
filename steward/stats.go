@@ -13,7 +13,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -164,9 +166,71 @@ type Stats struct {
 	Invites    InviteStats     `json:"invites"`
 }
 
+// VersionInfo.Status is the derived update signal (CLAUDE.md: "Version
+// comparison is steward's job, not towncrier's") — towncrier renders it
+// verbatim and never compares tag strings itself:
+//
+//	"update"  — latest's numeric core is newer; show the update banner.
+//	"ahead"   — running is past the latest release (a newer core, or the
+//	            same core with a git-describe suffix); preview build.
+//	"unknown" — running ("dev", a bare hash) or latest doesn't parse;
+//	            position genuinely unknowable, never claim either way.
+//	"current" — same release, even across formatting (v-prefix) drift.
+//	""        — no latest known (release check unavailable); no banner.
 type VersionInfo struct {
 	Running string `json:"running"`
 	Latest  string `json:"latest,omitempty"`
+	Status  string `json:"status,omitempty"`
+}
+
+var versionCoreRe = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(.*)$`)
+
+// parseVersionCore extracts the X.Y.Z numeric core from a version string
+// (optional "v" prefix). exact reports whether the string is ONLY the core —
+// false for git describe's -N-gHASH/-dirty suffixes.
+func parseVersionCore(s string) (core [3]int, exact bool, ok bool) {
+	m := versionCoreRe.FindStringSubmatch(s)
+	if m == nil {
+		return core, false, false
+	}
+	for i := 0; i < 3; i++ {
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil {
+			return core, false, false // unreachable for \d+, but never panic on it
+		}
+		core[i] = n
+	}
+	return core, m[4] == "", true
+}
+
+// versionStatus computes VersionInfo.Status from the raw running/latest
+// strings. This is the ONE place version ordering is decided; see the
+// VersionInfo doc comment for the meaning of each value.
+func versionStatus(running, latest string) string {
+	if latest == "" {
+		return ""
+	}
+	rc, rexact, rok := parseVersionCore(running)
+	lc, _, lok := parseVersionCore(latest)
+	if !rok || !lok {
+		if running == latest {
+			return "current"
+		}
+		return "unknown"
+	}
+	for i := 0; i < 3; i++ {
+		if rc[i] < lc[i] {
+			return "update"
+		}
+		if rc[i] > lc[i] {
+			return "ahead"
+		}
+	}
+	// Equal cores: a git-describe suffix means commits past the tag.
+	if !rexact {
+		return "ahead"
+	}
+	return "current"
 }
 
 type LordStats struct {
@@ -342,6 +406,7 @@ func (c *Cycle) generateStats(ctx context.Context, state *State, follows Follows
 		slog.Warn("release check failed", "error", err)
 	} else {
 		version.Latest = latest
+		version.Status = versionStatus(c.RunningVersion, latest)
 	}
 
 	raids := RaidStats{Next: c.nextRaidTime(c.Now())}
